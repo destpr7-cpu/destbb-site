@@ -1,1 +1,16 @@
-
+{
+  "rewrites": [
+    {
+      "source": "/products/redline",
+      "destination": "/products/redline/index.html"
+    },
+    {
+      "source": "/products/jesus",
+      "destination": "/products/jesus/index.html"
+    },
+    {
+      "source": "/products/great-schema",
+      "destination": "/products/great-schema/index.html"
+    }
+  ]
+}
