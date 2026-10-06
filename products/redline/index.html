@@ -187,7 +187,7 @@ async function finishOrder(){
     if(!response.ok) throw new Error(result.details||result.error||'Telegram notification failed');
     document.getElementById('orderNumberResult').textContent=result.orderNumber||('DB-'+Date.now().toString().slice(-8));
     document.querySelector('#step4 h3').textContent='ЗАКАЗ ПРИНЯТ';
-    document.querySelector('#step4 .success p:nth-of-type(2)').textContent='Спасибо. Мы получили заказ и подтверждение оплаты.';
+    document.querySelector('#step4 .success p').textContent='Спасибо. Мы получили заказ и подтверждение оплаты.';
   }catch(err){console.error(err);alert('Не удалось отправить заказ магазину: '+(err.message||'ошибка'));return}
   nextStep(4)
 }
