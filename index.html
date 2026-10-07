@@ -428,7 +428,7 @@ async function finishOrder(){
  }catch(err){console.error(err);alert('Не удалось отправить заказ магазину: '+(err.message||'ошибка'));return}
  nextStep(4)
 }
-function productFromPath(){const m=window.location.pathname.match(/^\/products\/(redline|jesus|great-schema)\/?$/);return m?m[1].replace('great-schema','scarf'):null}
+function productFromPath(){const m=window.location.pathname.match(/^\/products\/(redline|jesus|great-schema|scarf)\/?$/);return m?m[1].replace('great-schema','scarf'):null}
 const routeProduct=productFromPath();
 function refreshCartFromStorage(){cart=loadCart();renderCart();updateDeliverySummary();}
 window.addEventListener('pageshow',refreshCartFromStorage);
