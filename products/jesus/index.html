@@ -171,6 +171,23 @@ async function prepareReceipt(file){
   if(file.size>3*1024*1024) throw new Error('PDF слишком большой. Максимум 3 МБ.');
   return {name:file.name,type:file.type||'application/pdf',data:await fileToDataURL(file)};
 }
+async function finishWorldOrder(){
+  if(shipping!=='world'){alert('Выберите международную доставку');return}
+  for(const item of cart){if(item.id!=='scarf'&&!item.size){alert('Выберите размер: '+CART_PRODUCTS[item.id].name);return}}
+  const delivery={type:'local',name:wName.value,phone:wPhone.value,country:wCountry.value,city:wCity.value,street:wStreet.value,house:wHouse.value,apartment:wApartment.value,postal:wPostal.value,telegram:wTelegram.value,comment:wComment.value};
+  const data={cart,shipping:'world',payment:null,delivery,shippingCost:0,subtotal:subtotal(),total:subtotal(),createdAt:new Date().toISOString()};
+  localStorage.setItem('destbb_last_order',JSON.stringify(data));
+  try{
+    const telegramPayload={...data,cart:data.cart.map(item=>({...item,name:CART_PRODUCTS[item.id]?.name||item.id,price:Number(item.price)||CART_PRODUCTS[item.id]?.price||0}))};
+    const response=await fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(telegramPayload)});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(result.details||result.error||'Не удалось отправить заявку');
+    document.getElementById('orderNumberResult').textContent=result.orderNumber||('DB-'+Date.now().toString().slice(-8));
+    document.querySelector('#step4 h3').textContent='ЗАЯВКА ПРИНЯТА';
+    document.querySelector('#step4 .success p:nth-of-type(2)').textContent='Мы получили заявку и свяжемся с вами в Telegram, чтобы сообщить стоимость доставки и итоговую сумму.';
+  }catch(err){console.error(err);alert('Не удалось отправить заявку магазину: '+(err.message||'ошибка'));return}
+  nextStep(4)
+}
 async function finishOrder(){
   for(const item of cart){if(item.id!=='scarf'&&!item.size){alert('Выберите размер: '+CART_PRODUCTS[item.id].name);return}}
   if(!payment){alert('Выберите способ оплаты');return}

@@ -388,7 +388,26 @@ async function prepareReceipt(file){
   if(file.size>3*1024*1024) throw new Error('PDF слишком большой. Максимум 3 МБ.');
   return {name:file.name,type:file.type||'application/pdf',data:await fileToDataURL(file)};
 }
-async function finishWorldOrder(){return finishOrder()}
+async function finishWorldOrder(){
+ if(shipping!=='world'){alert('Выберите международную доставку');return}
+ for(const item of cart){if(item.id!=='scarf'&&!item.size){alert('Выберите размер: '+products[item.id].name);return}}
+ let delivery;
+ if(worldDelivery==='nova')delivery={type:'nova',name:wNovaName.value,phone:wNovaPhone.value,country:WORLD_NOVA_COUNTRIES.find(x=>x.code===worldCountryCode)?.name||'',countryCode:worldCountryCode,city:wNovaCity.value,branch:wNovaBranch.value,email:wNovaEmail.value,telegram:wNovaTelegram.value,comment:wNovaComment.value};
+ else delivery={type:'local',name:wLocalName.value,phone:wLocalPhone.value,country:wLocalCountry.value,city:wLocalCity.value,street:wLocalStreet.value,house:wLocalHouse.value,apartment:wLocalApartment.value,postal:wLocalPostal.value,email:wLocalEmail.value,telegram:wLocalTelegram.value,comment:wLocalComment.value};
+ const data={cart,shipping:'world',payment:null,selectedSizes,delivery,worldDeliveryType:worldDelivery,shippingCost:0,subtotal:subtotal(),total:subtotal(),createdAt:new Date().toISOString()};
+ localStorage.setItem('destbb_last_order',JSON.stringify(data));
+ try{
+  const telegramPayload={...data,cart:data.cart.map(item=>({...item,name:products[item.id]?.name||item.id,price:Number(item.price)||products[item.id]?.price||0}))};
+  const response=await fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(telegramPayload)});
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(result.details||result.error||'Не удалось отправить заявку');
+  window.orderCompleted=true;
+  document.getElementById('orderNumberResult').textContent=result.orderNumber||('DB-'+Date.now().toString().slice(-8));
+  document.querySelector('#step4 h3').textContent='ЗАЯВКА ПРИНЯТА';
+  document.querySelector('#step4 .success p:nth-of-type(2)').textContent='Мы получили заявку и свяжемся с вами в Telegram, чтобы сообщить стоимость доставки и итоговую сумму.';
+ }catch(err){console.error(err);alert('Не удалось отправить заявку магазину: '+(err.message||'ошибка'));return}
+ nextStep(4)
+}
 async function finishOrder(){
  for(const item of cart){if(item.id!=='scarf'&&!item.size){alert('Выберите размер: '+products[item.id].name);return}}
  if(!payment){alert('Выберите способ оплаты');return}
