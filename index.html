@@ -73,6 +73,20 @@ header{position:sticky;top:0;z-index:20;background:rgba(8,8,8,.86);backdrop-filt
 .quickOrderActions .btn{flex:1}
 @media(max-width:620px){.quickOrderOverlay{padding:12px}.quickOrderBox{padding:20px}.quickSizeMenu.open{grid-template-columns:repeat(3,1fr)}.quickOrderActions{flex-direction:column}}
 
+@media(max-width:620px){
+  .lightbox,.sizeChartOverlay{box-sizing:border-box;min-height:100vh;min-height:100dvh;padding:calc(12px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom));}
+  .lightbox{align-items:center;justify-content:center;}
+  .lightboxInner{width:100%;height:calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom));max-height:calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom));gap:8px;justify-content:center;}
+  .lightboxImg{max-width:100%;max-height:calc(100% - 28px);object-fit:contain;}
+  .lightboxClose{top:calc(8px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));z-index:3;font-size:34px;}
+  .lightboxArrow{width:42px;height:42px;font-size:26px;}
+  .lightboxArrow.left{left:8px}.lightboxArrow.right{right:8px}
+  .sizeChartOverlay{align-items:center;justify-content:center;}
+  .sizeChartInner{width:100%;max-height:calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom));}
+  .sizeChartImg{max-width:100%;max-height:calc(100dvh - 52px - env(safe-area-inset-top) - env(safe-area-inset-bottom));object-fit:contain;}
+  .sizeChartClose{right:0;top:0;z-index:3;font-size:34px;}
+}
+
 /* checkout stability fixes */
 .modal .step{width:100%;box-sizing:border-box;}
 .modal .step.active{display:block;}
@@ -113,8 +127,8 @@ header{position:sticky;top:0;z-index:20;background:rgba(8,8,8,.86);backdrop-filt
   </div>
 </div>
 
-<div class="sizeChartOverlay" id="sizeChartOverlay" onclick="if(event.target===this)closeSizeChart()"><div class="sizeChartInner"><button class="sizeChartClose" onclick="closeSizeChart()">×</button><img id="sizeChartImg" class="sizeChartImg" alt="Размерная сетка"></div></div>
-<div class="lightbox" id="lightbox" onclick="if(event.target===this)closeLightbox()"><button class="lightboxClose" onclick="closeLightbox()">×</button><button class="lightboxArrow left" onclick="event.stopPropagation();lightboxPrev()">‹</button><div class="lightboxInner"><img id="lightboxImg" class="lightboxImg" src="" alt=""><div id="lightboxCounter" class="lightboxCounter"></div></div><button class="lightboxArrow right" onclick="event.stopPropagation();lightboxNext()">›</button></div>
+<div class="sizeChartOverlay" id="sizeChartOverlay" onclick="if(event.target===this)closeSizeChart()"><div class="sizeChartInner" onclick="if(event.target===this)closeSizeChart()"><button class="sizeChartClose" onclick="closeSizeChart()">×</button><img id="sizeChartImg" class="sizeChartImg" alt="Размерная сетка"></div></div>
+<div class="lightbox" id="lightbox" onclick="if(event.target===this)closeLightbox()"><button class="lightboxClose" onclick="closeLightbox()">×</button><button class="lightboxArrow left" onclick="event.stopPropagation();lightboxPrev()">‹</button><div class="lightboxInner" onclick="if(event.target===this||event.target.id==='lightboxCounter')closeLightbox()"><img id="lightboxImg" class="lightboxImg" src="" alt=""><div id="lightboxCounter" class="lightboxCounter"></div></div><button class="lightboxArrow right" onclick="event.stopPropagation();lightboxNext()">›</button></div>
 <div class="overlay" id="overlay"><div class="modal"><div class="modalHead"><h2>Оформление заказа</h2><button class="close" onclick="closeCart()">×</button></div>
 <div class="step active" id="step1"><div class="stepTitle">01 / корзина</div><div id="orderItems"></div><div class="totals" id="cartTotals"></div><div class="actions"><button class="btn" onclick="continueShopping()">Продолжить покупки</button><button class="btn primary" onclick="nextStep(2)">Далее</button></div></div>
 <div class="step" id="step2"><div class="stepTitle">02 / доставка</div><div class="options"><div class="option selected" data-ship="ua" onclick="chooseShip(this)">Украина</div><div class="option" data-ship="world" onclick="chooseShip(this)">По миру</div></div><form id="deliveryForm" onsubmit="return false"><div id="uaFields"><label>Оплата доставки <span class="req">*</span></label><div class="deliveryChoices shippingPaymentChoices"><div class="deliveryChoice selected" onclick="setShippingPayment(this,'post')"><b>Оплатить на почте</b><span>Доставку оплатите при получении</span></div><div class="deliveryChoice" onclick="setShippingPayment(this,'now')"><b>Оплатить доставку сразу</b><span>Добавится к сумме заказа</span></div></div><input type="radio" name="uaShippingPayment" value="now" style="display:none"><input type="radio" name="uaShippingPayment" value="post" checked style="display:none"><div id="uaDeliveryTypeBlock" style="display:none"><label>Тип доставки <span class="req">*</span></label><div class="deliveryChoices"><div class="deliveryChoice selected" onclick="setUADelivery(this,'city')"><b>По городу</b><span>+80 грн</span></div><div class="deliveryChoice" onclick="setUADelivery(this,'oblast')"><b>По области</b><span>+115 грн</span></div></div><input type="radio" name="uaDeliveryType" value="city" checked style="display:none"><input type="radio" name="uaDeliveryType" value="oblast" style="display:none"></div><div class="row"><div><label>Фамилия Имя <span class="req">*</span></label><input id="uaName" required placeholder="Фамилия Имя"></div><div><label>Номер телефона <span class="req">*</span></label><input id="uaPhone" required type="tel" inputmode="tel" value="+380 " placeholder="+380 96 205 20 24" maxlength="17" pattern="\+380 \d{2} \d{3} \d{2} \d{2}"></div></div><label>Город <span class="req">*</span></label><input id="uaCity" required placeholder="Город"><label>Номер отделения Новой Почты <span class="req">*</span></label><input id="uaBranch" required placeholder="Например: 17"><label>Ваш Telegram <span class="req">*</span></label><input id="uaTelegram" required placeholder="@username"><details class="commentBox"><summary>Оставить комментарий</summary><textarea id="uaComment" placeholder="Например: удобное время для связи, пожелания к заказу и т.д."></textarea></details></div><div id="worldFields" style="display:none">
