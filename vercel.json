@@ -1,7 +1,24 @@
 {
   "rewrites": [
-    {"source": "/products/redline", "destination": "/products/redline/index.html"},
-    {"source": "/products/jesus", "destination": "/products/jesus/index.html"},
-    {"source": "/products/great-schema", "destination": "/products/great-schema/index.html"}
+    {
+      "source": "/products/redline",
+      "destination": "/products/redline/index.html"
+    },
+    {
+      "source": "/products/jesus",
+      "destination": "/products/jesus/index.html"
+    },
+    {
+      "source": "/products/great-schema",
+      "destination": "/products/great-schema/index.html"
+    },
+    {
+      "source": "/products/scarf2r",
+      "destination": "/products/scarf2r/index.html"
+    },
+    {
+      "source": "/products/scarfhinge",
+      "destination": "/products/scarfhinge/index.html"
+    }
   ]
 }
