@@ -2,26 +2,40 @@
 const crypto = require('crypto');
 
 // ---------- Настройки ----------
-const USD_RATE = 45.5;
+const USD_RATE = 45.5;                       // тот же курс, что в index.html
 const MAX_ITEMS = 12;
 const MAX_QTY = 10;
-const MAX_SHIPPING_UAH = 3000;              // потолок для присланной клиентом доставки
 const MAX_RECEIPT_BYTES = 3.2 * 1024 * 1024;
+const CAPTION_LIMIT = 1000;                  // у Telegram лимит подписи к файлу — 1024 символа
+
 const ALLOWED_ORIGINS = new Set(
   (process.env.ALLOWED_ORIGINS || 'https://destbb.com,https://www.destbb.com').split(',').map(s => s.trim())
 );
-const VERCEL_PREVIEW = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
+// Только собственные деплои этого проекта (Vercel подставляет эти переменные сам), а не любой *.vercel.app
+const OWN_DEPLOYMENTS = [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
+  .filter(Boolean).map(h => `https://${h}`);
 
-// Каталог — источник правды о ценах. Менять здесь при смене цен
-// Цены задаются здесь для проверки и расчёта заказов на сервере.
+// Каталог — источник правды о ценах. Менять здесь при смене цен (и в index.html тоже).
 const ONE = '190×21 см';
 const CATALOG = {
-  scarf2r:    { name: 'DESIGNER SCARF «2R»',        price: 699, sizes: [ONE] },
-  scarfhinge: { name: 'DESIGNER SCARF «UNTITLED»',  price: 749, sizes: [ONE] },
-  scarf:      { name: 'SCARF «GREAT SCHEMA»',       price: 888,  sizes: [ONE] },
-  redline:    { name: 'LONGSLEEVE «REDLINE»',       price: 1720, sizes: ['S', 'M', 'L', 'XL'] },
-  jesus:      { name: 'LONGSLEEVE «JESUS»',         price: 1520, sizes: ['S', 'M', 'L', 'XL', 'XXL'] }
+  scarf2r:    { name: 'DESIGNER SCARF «2R»',       price: 699,  sizes: [ONE] },
+  scarfhinge: { name: 'DESIGNER SCARF «UNTITLED»', price: 749,  sizes: [ONE] },
+  scarf:      { name: 'SCARF «GREAT SCHEMA»',      price: 888,  sizes: [ONE] },
+  redline:    { name: 'LONGSLEEVE «REDLINE»',      price: 1720, sizes: ['S', 'M', 'L', 'XL'] },
+  jesus:      { name: 'LONGSLEEVE «JESUS»',        price: 1520, sizes: ['S', 'M', 'L', 'XL', 'XXL'] }
 };
+
+// Доставка — те же правила, что в index.html (deliveryCost). При смене тарифов менять в обоих местах.
+const NOVA = {
+  PL: { name: 'Польша', price: 460 },   LT: { name: 'Литва', price: 660 },   DE: { name: 'Германия', price: 660 },
+  CZ: { name: 'Чехия', price: 660 },    RO: { name: 'Румыния', price: 660 }, SK: { name: 'Словакия', price: 660 },
+  LV: { name: 'Латвия', price: 1010 },  EE: { name: 'Эстония', price: 1010 }, HU: { name: 'Венгрия', price: 1430 },
+  MD: { name: 'Молдова', price: 440 },  IT: { name: 'Италия', price: 1010 }, FR: { name: 'Франция', price: 1210 },
+  AT: { name: 'Австрия', price: 1210 }, GB: { name: 'Великобритания', price: 1210 }, ES: { name: 'Испания', price: 1210 },
+  NL: { name: 'Нидерланды', price: 1010 }
+};
+const LOCAL_BASE_USD = 12, LOCAL_NEXT_USD = 6;   // местная почта: $12 + $6 за каждую следующую единицу
+const UA_NOW = { city: 80, oblast: 115 };         // доставка по Украине, если оплачивают сразу
 
 // ---------- Хелперы ----------
 const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -29,11 +43,24 @@ const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const money = n => Number(n || 0).toLocaleString('ru-RU');
 const usd = n => '$' + Math.round(Number(n || 0) / USD_RATE);
+const price = n => `${money(n)} грн ($${Math.round(Number(n || 0) / USD_RATE)})`;
+// Длина текста так, как её считает Telegram: без тегов и с раскрытыми сущностями
+const visibleLen = html => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').length;
+const tgHandle = v => /^@/.test(v) ? v : (/^[A-Za-z0-9_]{4,32}$/.test(v) ? '@' + v : v);
 
 function makeOrderNumber() {
   const d = new Date();
   const ymd = String(d.getUTCFullYear()).slice(2) + String(d.getUTCMonth() + 1).padStart(2, '0') + String(d.getUTCDate()).padStart(2, '0');
   return `DB-${ymd}-${crypto.randomInt(1000, 10000)}`;
+}
+
+function kyivTime() {
+  for (const tz of ['Europe/Kyiv', 'Europe/Kiev']) {
+    try {
+      return new Date().toLocaleString('ru-RU', { timeZone: tz, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+    } catch { /* пробуем следующее название зоны */ }
+  }
+  return new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
 
 // Определяем тип файла по первым байтам, а не по MIME от клиента
@@ -61,19 +88,111 @@ function normalizeCart(rawCart) {
   return items;
 }
 
-async function sendReceipt({ token, chatId, buf, kind, orderNumber }) {
-  const send = async asPhoto => {
+// Возвращает { cost, countryName? } или null, если способ доставки некорректный
+function computeShipping(isUa, o, d, items) {
+  if (isUa) {
+    if (o.shippingPayment !== 'now') return { cost: 0 };          // платит на почте
+    // Старая закешированная страница тип не присылала — тогда ориентируемся на заявленную цену
+    const oblast = o.uaDeliveryType === 'oblast' || (o.uaDeliveryType == null && Number(o.shippingCost) === UA_NOW.oblast);
+    return { cost: oblast ? UA_NOW.oblast : UA_NOW.city };
+  }
+  if (d.type === 'nova') {
+    const c = typeof d.countryCode === 'string' && has(NOVA, d.countryCode) ? NOVA[d.countryCode] : null;
+    return c ? { cost: c.price, countryName: c.name } : null;
+  }
+  if (d.type === 'local') {
+    const n = items.reduce((sum, i) => sum + i.qty, 0);
+    return { cost: Math.round((LOCAL_BASE_USD + Math.max(0, n - 1) * LOCAL_NEXT_USD) * USD_RATE) };
+  }
+  return null;
+}
+
+// ---------- Оформление сообщения ----------
+function buildMessage(c, commentMax) {
+  const { orderNumber, isRequest, isUa, mismatch, items, d, o, ship, subtotal, shippingCost, total } = c;
+  const f = (icon, v, n = 100) => { const s = clip(v, n); return s ? `${icon} ${esc(s)}` : ''; };
+  const join = lines => lines.filter(Boolean).join('\n');
+
+  const head = join([
+    `${isRequest ? '📝 <b>НОВАЯ ЗАЯВКА</b>' : '🛍 <b>НОВЫЙ ЗАКАЗ</b>'} · <code>${orderNumber}</code>`,
+    mismatch ? '⚠️ <i>Сумма клиента не совпала с каталогом — указан пересчёт</i>' : ''
+  ]);
+
+  const goods = join([
+    '📦 <b>Товары</b>',
+    ...items.map(i => `• ${esc(i.name)} · ${esc(i.size)} × ${i.qty} — ${price(i.unit * i.qty)}`)
+  ]);
+
+  const tg = clip(d.telegram, 60);
+  const comment = commentMax > 0 ? clip(d.comment, commentMax) : '';
+  let delivery;
+  if (isUa) {
+    delivery = join([
+      '🚚 <b>Доставка</b> · Украина, Новая Почта',
+      f('👤', d.name),
+      d.phone ? `📞 <code>${esc(clip(d.phone, 30))}</code>` : '',
+      f('📍', [clip(d.city, 80), clip(d.branch, 30) ? `отделение ${clip(d.branch, 30)}` : ''].filter(Boolean).join(', ')),
+      tg ? `✈️ ${esc(tgHandle(tg))}` : '',
+      comment ? `💬 <i>${esc(comment)}</i>` : ''
+    ]);
+  } else {
+    const nova = d.type === 'nova';
+    const country = ship.countryName || clip(d.country, 60);
+    const address = nova
+      ? [clip(d.city, 80), clip(d.branch, 30) ? `отделение ${clip(d.branch, 30)}` : '']
+      : [clip(d.city, 80), clip(d.street, 80), clip(d.house, 20) && `д. ${clip(d.house, 20)}`, clip(d.apartment, 20) && `кв. ${clip(d.apartment, 20)}`, clip(d.postal, 20)];
+    delivery = join([
+      `🚚 <b>Доставка</b> · ${nova ? 'Nova Post' : 'Местная почта'}${country ? ', ' + esc(country) : ''}`,
+      f('👤', d.name),
+      d.phone ? `📞 <code>${esc(clip(d.phone, 30))}</code>` : '',
+      f('📍', address.filter(Boolean).join(', '), 200),
+      f('✉️', d.email),
+      tg ? `✈️ ${esc(tgHandle(tg))}` : '',
+      comment ? `💬 <i>${esc(comment)}</i>` : ''
+    ]);
+  }
+
+  const paymentNames = { card: 'Карта', paypal: 'PayPal', crypto: 'Крипто' };
+  const details = clip(o.paymentDetails, 70);
+  const showDetails = o.payment === 'crypto' || /^SWIFT/i.test(details);
+  const shipLine = shippingCost
+    ? `🚚 Доставка: ${price(shippingCost)}${isUa ? ' · оплачена сразу' : ''}`
+    : (isUa ? '🚚 Доставка: оплата при получении' : '');
+  const money_ = join([
+    isRequest ? '' : `💳 <b>Оплата</b> · ${esc(/^SWIFT/i.test(details) ? 'SWIFT / международный перевод' : (paymentNames[o.payment] || clip(o.payment, 30)))}`,
+    !isRequest && showDetails ? `🔑 <code>${esc(details)}</code>` : '',
+    `🧾 Товары: ${price(subtotal)}`,
+    shipLine,
+    `💰 <b>${isRequest ? 'ИТОГО (ориентировочно)' : 'ИТОГО К ОПЛАТЕ'}: ${price(total)}</b>`
+  ]);
+
+  return [head, goods, delivery, money_, `🕐 ${kyivTime()}`].filter(Boolean).join('\n\n');
+}
+
+// ---------- Telegram ----------
+function telegram(token) {
+  const url = method => `https://api.telegram.org/bot${token}/${method}`;
+  const read = async r => { const j = await r.json().catch(() => ({})); return r.ok && j.ok ? { ok: true, result: j.result } : { ok: false, error: j.description || 'telegram error' }; };
+  return {
+    json: async (method, payload) => read(await fetch(url(method), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })),
+    form: async (method, form) => read(await fetch(url(method), { method: 'POST', body: form }))
+  };
+}
+
+// Чек + подпись одним сообщением. Фото Telegram иногда не принимает по размерам — тогда шлём как файл.
+async function sendReceipt(tg, chatId, { buf, kind, caption, replyTo, orderNumber }) {
+  const attempt = asPhoto => {
     const form = new FormData();
     form.append('chat_id', chatId);
-    form.append('caption', `🧾 ЧЕК — ЗАКАЗ № ${orderNumber}`);
+    form.append('caption', caption);
+    form.append('parse_mode', 'HTML');
+    if (replyTo) form.append('reply_to_message_id', String(replyTo));
     form.append(asPhoto ? 'photo' : 'document', new Blob([buf], { type: kind.mime }), `receipt-${orderNumber}.${kind.ext}`);
-    const r = await fetch(`https://api.telegram.org/bot${token}/${asPhoto ? 'sendPhoto' : 'sendDocument'}`, { method: 'POST', body: form });
-    const j = await r.json().catch(() => ({}));
-    return r.ok && j.ok ? null : (j.description || 'receipt upload failed');
+    return tg.form(asPhoto ? 'sendPhoto' : 'sendDocument', form);
   };
-  let err = await send(kind.photo);
-  if (err && kind.photo) err = await send(false);   // Telegram иногда не принимает фото по размерам — шлём как файл
-  return err;
+  let r = await attempt(kind.photo);
+  if (!r.ok && kind.photo) r = await attempt(false);
+  return r;
 }
 
 // ---------- Handler ----------
@@ -81,7 +200,7 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const origin = req.headers.origin;
-  if (origin && !ALLOWED_ORIGINS.has(origin) && !VERCEL_PREVIEW.test(origin)) {
+  if (origin && !ALLOWED_ORIGINS.has(origin) && !OWN_DEPLOYMENTS.includes(origin)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
@@ -96,8 +215,7 @@ module.exports = async function handler(req, res) {
     const isUa = o.shipping === 'ua';
     const hasReceipt = typeof o.receiptData === 'string' && o.receiptData.length > 0;
     if (isUa && !hasReceipt) return res.status(400).json({ error: 'Прикрепите чек об оплате' });
-    // Без чека допустима только заявка на международную доставку
-    const isRequest = !hasReceipt;
+    const isRequest = !hasReceipt;                   // без чека допустима только заявка на международную доставку
 
     // Чек: проверяем до отправки чего-либо в Telegram
     let receiptBuf = null, receiptKind = null;
@@ -109,79 +227,59 @@ module.exports = async function handler(req, res) {
       receiptKind = detectReceipt(receiptBuf);
       if (!receiptKind) return res.status(400).json({ error: 'Чек должен быть изображением (JPG/PNG/WEBP) или PDF' });
     }
+
     const items = normalizeCart(o.cart);
     if (!items) return res.status(400).json({ error: 'Некорректная корзина' });
 
-    // Суммы считаем сами
+    const d = o.delivery && typeof o.delivery === 'object' ? o.delivery : {};
+
+    // Суммы считаем сами: и товары, и доставку
     const subtotal = items.reduce((s, i) => s + i.unit * i.qty, 0);
-    const shippingCost = Math.min(Math.max(Number(o.shippingCost) || 0, 0), MAX_SHIPPING_UAH);
+    const ship = computeShipping(isUa, o, d, items);
+    if (!ship) return res.status(400).json({ error: 'Некорректный способ доставки' });
+    const shippingCost = ship.cost;
     const total = subtotal + shippingCost;
     const mismatch =
       Number(o.subtotal) !== subtotal ||
+      Number(o.shippingCost || 0) !== shippingCost ||
       Number(o.total) !== total ||
       items.some(i => i.clientUnit !== i.unit);
 
-    const d = o.delivery && typeof o.delivery === 'object' ? o.delivery : {};
-    const f = (label, v, n = 100) => { const s = clip(v, n); return s ? `${label}: ${esc(s)}` : ''; };
-    const deliveryLines = (isUa ? [
-      `<b>Доставка:</b> Украина`,
-      f('Имя', d.name), f('Телефон', d.phone, 30), f('Город', d.city), f('Новая Почта', d.branch, 30), f('Telegram', d.telegram, 60),
-      `Оплата доставки: ${o.shippingPayment === 'now' ? 'сразу' : 'при получении'}`,
-      f('Комментарий', d.comment, 500)
-    ] : [
-      `<b>Доставка:</b> По миру — ${d.type === 'nova' ? 'Nova Post' : d.type === 'local' ? 'местная почта' : 'международная доставка'}`,
-      f('Имя', d.name), f('Страна', d.country), f('Город', d.city),
-      d.type === 'nova' ? f('Отделение Nova Post', d.branch, 30) : f('Улица', d.street),
-      d.type === 'local' ? f('Дом', d.house, 20) : '', f('Квартира', d.apartment, 20),
-      f('Телефон', d.phone, 30), f('Индекс', d.postal, 20), f('Email', d.email, 100), f('Telegram', d.telegram, 60),
-      f('Комментарий', d.comment, 500)
-    ]).filter(Boolean).join('\n');
-
-    const itemLines = items.map(i =>
-      `• ${esc(i.name)} ×${i.qty} — ${esc(i.size)} — ${money(i.unit * i.qty)} грн / ${usd(i.unit * i.qty)}`
-    ).join('\n');
-
-    const paymentNames = { card: 'Карта', paypal: 'PayPal', crypto: 'Крипто', swift: 'SWIFT / международный перевод' };
     const orderNumber = makeOrderNumber();
+    const ctx = { orderNumber, isRequest, isUa, mismatch, items, d, o, ship, subtotal, shippingCost, total };
+    const tg = telegram(token);
 
-    const block = lines => lines.filter(Boolean).join('\n');
-    const message = [
-      block([
-        isRequest ? `📝 <b>НОВАЯ ЗАЯВКА DEST BB</b> (международная доставка)` : `🛍 <b>НОВЫЙ ЗАКАЗ DEST BB</b>`,
-        `<b>№ ${orderNumber}</b>`,
-        mismatch ? `⚠️ <b>Сумма от клиента не совпала с каталогом.</b> Ниже — пересчёт по каталогу.` : ''
-      ]),
-      block([`<b>Товары:</b>`, itemLines]),
-      deliveryLines,
-      isRequest ? '' : block([
-        `<b>Оплата:</b> ${esc(paymentNames[o.payment] || clip(o.payment, 30))}`,
-        o.paymentDetails ? `Реквизиты: <code>${esc(clip(o.paymentDetails, 120))}</code>` : ''
-      ]),
-      block([
-        `<b>Товары:</b> ${money(subtotal)} грн / ${usd(subtotal)}`,
-        shippingCost ? `<b>Доставка:</b> ${money(shippingCost)} грн / ${usd(shippingCost)}` : '',
-        `<b>${isRequest ? 'ИТОГО (ориентировочно)' : 'ИТОГО К ОПЛАТЕ'}: ${money(total)} грн / ${usd(total)}</b>`,
-        isRequest ? '' : '🧾 Чек прикреплён ниже',
-        `Время: ${new Date().toISOString()}`
-      ])
-    ].filter(Boolean).join('\n\n');
+    // 1) заявка без чека — просто текст
+    if (!receiptBuf) {
+      const m = await tg.json('sendMessage', { chat_id: chatId, text: buildMessage(ctx, 500), parse_mode: 'HTML', disable_web_page_preview: true });
+      if (!m.ok) { console.error('sendMessage failed:', m.error); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
+      return res.status(200).json({ ok: true, orderNumber });
+    }
 
-    const tg = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' })
-    });
-    const result = await tg.json().catch(() => ({}));
-    if (!tg.ok || !result.ok) { console.error('sendMessage failed:', result.description); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
+    // 2) заказ с чеком — одно сообщение: чек сверху, данные заказа в подписи (до 1024 символов).
+    //    Если не влезает, сокращаем комментарий клиента.
+    let caption = null;
+    for (const limit of [500, 250, 120, 0]) {
+      const text = buildMessage(ctx, limit);
+      if (visibleLen(text) <= CAPTION_LIMIT) { caption = text; break; }
+    }
 
-    if (receiptBuf) {
-      const err = await sendReceipt({ token, chatId, buf: receiptBuf, kind: receiptKind, orderNumber });
-      if (err) {
-        console.error('receipt failed:', err);
-        // Заказ уже у вас в чате — не просим клиента отправлять повторно, чтобы не плодить дубли
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: `⚠️ Чек к заказу ${orderNumber} не загрузился. Запросите его у клиента.` })
-        }).catch(() => {});
+    if (caption) {
+      const r = await sendReceipt(tg, chatId, { buf: receiptBuf, kind: receiptKind, caption, orderNumber });
+      if (!r.ok) {
+        // Чек не загрузился — заказ всё равно должен дойти до вас
+        console.error('receipt failed:', r.error);
+        const m = await tg.json('sendMessage', { chat_id: chatId, text: buildMessage(ctx, 500) + '\n\n⚠️ <b>Чек не загрузился — запросите его у клиента</b>', parse_mode: 'HTML', disable_web_page_preview: true });
+        if (!m.ok) { console.error('sendMessage failed:', m.error); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
+      }
+    } else {
+      // Очень большой заказ: полный текст + чек ответом на него
+      const m = await tg.json('sendMessage', { chat_id: chatId, text: buildMessage(ctx, 500), parse_mode: 'HTML', disable_web_page_preview: true });
+      if (!m.ok) { console.error('sendMessage failed:', m.error); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
+      const r = await sendReceipt(tg, chatId, { buf: receiptBuf, kind: receiptKind, caption: `🧾 <b>Чек</b> · <code>${orderNumber}</code>`, replyTo: m.result && m.result.message_id, orderNumber });
+      if (!r.ok) {
+        console.error('receipt failed:', r.error);
+        await tg.json('sendMessage', { chat_id: chatId, text: `⚠️ Чек к заказу <code>${orderNumber}</code> не загрузился — запросите его у клиента`, parse_mode: 'HTML' }).catch(() => {});
       }
     }
 
