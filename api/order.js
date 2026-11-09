@@ -61,21 +61,64 @@ function normalizeCart(rawCart) {
   return items;
 }
 
-async function sendReceipt({ token, chatId, buf, kind, orderNumber }) {
-  const send = async asPhoto => {
-    const form = new FormData();
-    form.append('chat_id', chatId);
-    form.append('caption', `🧾 ЧЕК — ЗАКАЗ № ${orderNumber}`);
-    form.append(asPhoto ? 'photo' : 'document', new Blob([buf], { type: kind.mime }), `receipt-${orderNumber}.${kind.ext}`);
-    const r = await fetch(`https://api.telegram.org/bot${token}/${asPhoto ? 'sendPhoto' : 'sendDocument'}`, { method: 'POST', body: form });
-    const j = await r.json().catch(() => ({}));
-    return r.ok && j.ok ? null : (j.description || 'receipt upload failed');
-  };
-  let err = await send(kind.photo);
-  if (err && kind.photo) err = await send(false);   // Telegram иногда не принимает фото по размерам — шлём как файл
-  return err;
+const TELEGRAM_CAPTION_LIMIT = 1000;
+const priceLabel = n => `${money(n)} грн ($${Math.round(Number(n || 0) / USD_RATE)})`;
+const visibleLen = html => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').length;
+function kyivTime() {
+  try { return new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Kyiv', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ''); }
+  catch { return new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC'; }
 }
-
+function buildOrderMessage({ orderNumber, isRequest, isUa, mismatch, items, d, o, subtotal, shippingCost, total }) {
+  const field = (icon, value, max = 100) => { const v = clip(value, max); return v ? `${icon} ${esc(v)}` : ''; };
+  const blocks = lines => lines.filter(Boolean).join('\n');
+  const goods = blocks(['📦 <b>Товары</b>', ...items.map(i => `• ${esc(i.name)} · ${esc(i.size)} × ${i.qty} — ${priceLabel(i.unit * i.qty)}`)]);
+  const tg = clip(d.telegram, 60);
+  const comment = clip(d.comment, 180);
+  let delivery;
+  if (isUa) {
+    delivery = blocks([
+      '🚚 <b>Доставка</b> · Украина, Новая Почта',
+      field('👤', d.name), d.phone ? `📞 <code>${esc(clip(d.phone, 30))}</code>` : '',
+      field('📍', [clip(d.city, 70), clip(d.branch, 30) ? `отделение ${clip(d.branch, 30)}` : ''].filter(Boolean).join(', '), 120),
+      tg ? `✈️ ${esc(tg.startsWith('@') ? tg : '@' + tg)}` : '', comment ? `💬 <i>${esc(comment)}</i>` : ''
+    ]);
+  } else {
+    const nova = d.type === 'nova';
+    const address = nova
+      ? [clip(d.city, 70), clip(d.branch, 30) ? `отделение ${clip(d.branch, 30)}` : '']
+      : [clip(d.city, 70), clip(d.street, 70), clip(d.house, 20) && `д. ${clip(d.house, 20)}`, clip(d.apartment, 20) && `кв. ${clip(d.apartment, 20)}`, clip(d.postal, 20)];
+    delivery = blocks([
+      `🚚 <b>Доставка</b> · ${nova ? 'Nova Post' : 'Местная почта'}${d.country ? ', ' + esc(clip(d.country, 60)) : ''}`,
+      field('👤', d.name), d.phone ? `📞 <code>${esc(clip(d.phone, 30))}</code>` : '',
+      field('📍', address.filter(Boolean).join(', '), 180), field('✉️', d.email),
+      tg ? `✈️ ${esc(tg.startsWith('@') ? tg : '@' + tg)}` : '', comment ? `💬 <i>${esc(comment)}</i>` : ''
+    ]);
+  }
+  const details = clip(o.paymentDetails, 70);
+    const showDetails = o.payment === 'crypto';
+  const paymentNames = { card: 'Карта', paypal: 'PayPal', crypto: 'Криптовалюта' };
+  const moneyBlock = blocks([
+    isRequest ? '' : `💳 <b>Оплата</b> · ${esc(paymentNames[o.payment] || 'Не указано')}`,
+    !isRequest && showDetails ? `🔑 <code>${esc(details)}</code>` : '',
+    `🧾 Товары: ${priceLabel(subtotal)}`,
+    shippingCost ? `🚚 Доставка: ${priceLabel(shippingCost)}${isUa ? ' · оплачена сразу' : ''}` : (isUa ? '🚚 Доставка: оплата при получении' : ''),
+    `💰 <b>${isRequest ? 'ИТОГО (ориентировочно)' : 'ИТОГО К ОПЛАТЕ'}: ${priceLabel(total)}</b>`,
+    isRequest ? '' : '🧾 Чек прикреплён', `🕐 ${kyivTime()}`
+  ]);
+  return [blocks([`${isRequest ? '📝 <b>НОВАЯ ЗАЯВКА</b>' : '🛍 <b>НОВЫЙ ЗАКАЗ</b>'} · <code>${orderNumber}</code>`, mismatch ? '⚠️ <i>Сумма пересчитана по каталогу</i>' : '']), goods, delivery, moneyBlock].filter(Boolean).join('\n\n');
+}
+async function sendReceipt({ token, chatId, buf, kind, orderNumber, caption, replyTo }) {
+  const send = async asPhoto => {
+    try {
+      const form = new FormData(); form.append('chat_id', chatId); form.append('caption', caption || `🧾 ЧЕК · ${orderNumber}`); form.append('parse_mode', 'HTML');
+      if (replyTo) form.append('reply_to_message_id', String(replyTo));
+      form.append(asPhoto ? 'photo' : 'document', new Blob([buf], { type: kind.mime }), `receipt-${orderNumber}.${kind.ext}`);
+      const r = await fetch(`https://api.telegram.org/bot${token}/${asPhoto ? 'sendPhoto' : 'sendDocument'}`, { method: 'POST', body: form });
+      const j = await r.json().catch(() => ({})); return r.ok && j.ok ? null : (j.description || 'receipt upload failed');
+    } catch (e) { return e.message || 'receipt upload failed'; }
+  };
+  let err = await send(kind.photo); if (err && kind.photo) err = await send(false); return err;
+}
 // ---------- Handler ----------
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -121,70 +164,29 @@ module.exports = async function handler(req, res) {
       Number(o.total) !== total ||
       items.some(i => i.clientUnit !== i.unit);
 
-    const d = o.delivery && typeof o.delivery === 'object' ? o.delivery : {};
-    const f = (label, v, n = 100) => { const s = clip(v, n); return s ? `${label}: ${esc(s)}` : ''; };
-    const deliveryLines = (isUa ? [
-      `<b>Доставка:</b> Украина`,
-      f('Имя', d.name), f('Телефон', d.phone, 30), f('Город', d.city), f('Новая Почта', d.branch, 30), f('Telegram', d.telegram, 60),
-      `Оплата доставки: ${o.shippingPayment === 'now' ? 'сразу' : 'при получении'}`,
-      f('Комментарий', d.comment, 500)
-    ] : [
-      `<b>Доставка:</b> По миру — ${d.type === 'nova' ? 'Nova Post' : d.type === 'local' ? 'местная почта' : 'международная доставка'}`,
-      f('Имя', d.name), f('Страна', d.country), f('Город', d.city),
-      d.type === 'nova' ? f('Отделение Nova Post', d.branch, 30) : f('Улица', d.street),
-      d.type === 'local' ? f('Дом', d.house, 20) : '', f('Квартира', d.apartment, 20),
-      f('Телефон', d.phone, 30), f('Индекс', d.postal, 20), f('Email', d.email, 100), f('Telegram', d.telegram, 60),
-      f('Комментарий', d.comment, 500)
-    ]).filter(Boolean).join('\n');
-
-    const itemLines = items.map(i =>
-      `• ${esc(i.name)} ×${i.qty} — ${esc(i.size)} — ${money(i.unit * i.qty)} грн / ${usd(i.unit * i.qty)}`
-    ).join('\n');
-
-    const paymentNames = { card: 'Карта', paypal: 'PayPal', crypto: 'Крипто', swift: 'SWIFT / международный перевод' };
     const orderNumber = makeOrderNumber();
-
-    const block = lines => lines.filter(Boolean).join('\n');
-    const message = [
-      block([
-        isRequest ? `📝 <b>НОВАЯ ЗАЯВКА DEST BB</b> (международная доставка)` : `🛍 <b>НОВЫЙ ЗАКАЗ DEST BB</b>`,
-        `<b>№ ${orderNumber}</b>`,
-        mismatch ? `⚠️ <b>Сумма от клиента не совпала с каталогом.</b> Ниже — пересчёт по каталогу.` : ''
-      ]),
-      block([`<b>Товары:</b>`, itemLines]),
-      deliveryLines,
-      isRequest ? '' : block([
-        `<b>Оплата:</b> ${esc(paymentNames[o.payment] || clip(o.payment, 30))}`,
-        o.paymentDetails ? `Реквизиты: <code>${esc(clip(o.paymentDetails, 120))}</code>` : ''
-      ]),
-      block([
-        `<b>Товары:</b> ${money(subtotal)} грн / ${usd(subtotal)}`,
-        shippingCost ? `<b>Доставка:</b> ${money(shippingCost)} грн / ${usd(shippingCost)}` : '',
-        `<b>${isRequest ? 'ИТОГО (ориентировочно)' : 'ИТОГО К ОПЛАТЕ'}: ${money(total)} грн / ${usd(total)}</b>`,
-        isRequest ? '' : '🧾 Чек прикреплён ниже',
-        `Время: ${new Date().toISOString()}`
-      ])
-    ].filter(Boolean).join('\n\n');
-
-    const tg = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' })
-    });
-    const result = await tg.json().catch(() => ({}));
-    if (!tg.ok || !result.ok) { console.error('sendMessage failed:', result.description); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
-
-    if (receiptBuf) {
-      const err = await sendReceipt({ token, chatId, buf: receiptBuf, kind: receiptKind, orderNumber });
+    const d = o.delivery && typeof o.delivery === 'object' ? o.delivery : {};
+    const message = buildOrderMessage({ orderNumber, isRequest, isUa, mismatch, items, d, o, subtotal, shippingCost, total });
+    const sendText = async text => {
+      const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }) });
+      const j = await r.json().catch(() => ({})); return r.ok && j.ok ? { ok: true, result: j.result } : { ok: false, error: j.description || 'sendMessage failed' };
+    };
+    if (!receiptBuf) {
+      const r = await sendText(message);
+      if (!r.ok) { console.error('sendMessage failed:', r.error); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
+    } else if (visibleLen(message) <= TELEGRAM_CAPTION_LIMIT) {
+      const err = await sendReceipt({ token, chatId, buf: receiptBuf, kind: receiptKind, orderNumber, caption: message });
       if (err) {
         console.error('receipt failed:', err);
-        // Заказ уже у вас в чате — не просим клиента отправлять повторно, чтобы не плодить дубли
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: `⚠️ Чек к заказу ${orderNumber} не загрузился. Запросите его у клиента.` })
-        }).catch(() => {});
+        const r = await sendText(message + '\n\n⚠️ <b>Чек не загрузился — запросите его у клиента</b>');
+        if (!r.ok) return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' });
       }
+    } else {
+      const r = await sendText(message);
+      if (!r.ok) { console.error('sendMessage failed:', r.error); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
+      const err = await sendReceipt({ token, chatId, buf: receiptBuf, kind: receiptKind, orderNumber, caption: `🧾 <b>Чек</b> · <code>${orderNumber}</code>`, replyTo: r.result.message_id });
+      if (err) await sendText(`⚠️ Чек к заказу <code>${orderNumber}</code> не загрузился — запросите его у клиента`);
     }
-
     return res.status(200).json({ ok: true, orderNumber });
   } catch (e) {
     console.error(e);
