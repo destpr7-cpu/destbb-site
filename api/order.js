@@ -46,12 +46,26 @@ function detectReceipt(buf) {
 }
 
 // Пересчёт корзины по серверному каталогу. Цены от клиента игнорируются.
-function normalizeCart(rawCart) {
+async function currentCatalog() {
+  const fallback = Object.fromEntries(Object.entries(CATALOG).map(([id, p]) => [id, { ...p, sale_price: null }]));
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return fallback;
+  const response = await fetch(`${url.replace(/\/$/, '')}/rest/v1/products?select=id,name,price,sale_price,sizes,active`, {
+    headers: { apikey: key, Authorization: `Bearer ${key}` }
+  });
+  const data = await response.json().catch(() => []);
+  if (!response.ok || !Array.isArray(data)) throw new Error('Catalog storage unavailable');
+  const result = {};
+  for (const p of data) if (p.active) result[p.id] = { name: p.name, price: p.sale_price || p.price, sizes: p.sizes };
+  return result;
+}
+
+function normalizeCart(rawCart, catalog = CATALOG) {
   if (!Array.isArray(rawCart) || rawCart.length === 0 || rawCart.length > MAX_ITEMS) return null;
   const items = [];
   for (const it of rawCart) {
-    if (!it || typeof it.id !== 'string' || !has(CATALOG, it.id)) return null;
-    const p = CATALOG[it.id];
+    if (!it || typeof it.id !== 'string' || !has(catalog, it.id)) return null;
+    const p = catalog[it.id];
     const qty = Number(it.qty);
     if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) return null;
     const size = p.sizes.length === 1 ? p.sizes[0] : String(it.size || '');
@@ -59,6 +73,23 @@ function normalizeCart(rawCart) {
     items.push({ id: it.id, name: p.name, size, qty, unit: p.price, clientUnit: Number(it.price) || 0 });
   }
   return items;
+}
+
+async function persistOrder({ orderNumber, isRequest, items, d, o, subtotal, shippingCost, total }) {
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return;
+  const record = {
+    order_number: orderNumber,
+    status: isRequest ? 'request' : 'awaiting_review',
+    items: items.map(i => ({ id: i.id, name: i.name, size: i.size, qty: i.qty, unit: i.unit })),
+    delivery: d, payment: o.payment || null, shipping: o.shipping || null,
+    subtotal, shipping_cost: shippingCost, total
+  };
+  const response = await fetch(`${url.replace(/\/$/, '')}/rest/v1/orders`, {
+    method: 'POST', headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify(record)
+  });
+  if (!response.ok) throw new Error(`Order archive failed (${response.status})`);
 }
 
 const TELEGRAM_CAPTION_LIMIT = 1000;
@@ -152,7 +183,8 @@ module.exports = async function handler(req, res) {
       receiptKind = detectReceipt(receiptBuf);
       if (!receiptKind) return res.status(400).json({ error: 'Чек должен быть изображением (JPG/PNG/WEBP) или PDF' });
     }
-    const items = normalizeCart(o.cart);
+    const catalog = await currentCatalog();
+    const items = normalizeCart(o.cart, catalog);
     if (!items) return res.status(400).json({ error: 'Некорректная корзина' });
 
     // Суммы считаем сами
@@ -187,6 +219,8 @@ module.exports = async function handler(req, res) {
       const err = await sendReceipt({ token, chatId, buf: receiptBuf, kind: receiptKind, orderNumber, caption: `🧾 <b>Чек</b> · <code>${orderNumber}</code>`, replyTo: r.result.message_id });
       if (err) await sendText(`⚠️ Чек к заказу <code>${orderNumber}</code> не загрузился — запросите его у клиента`);
     }
+    try { await persistOrder({ orderNumber, isRequest, items, d, o, subtotal, shippingCost, total }); }
+    catch (error) { console.error('Order archive failed:', error.message); }
     return res.status(200).json({ ok: true, orderNumber });
   } catch (e) {
     console.error(e);
