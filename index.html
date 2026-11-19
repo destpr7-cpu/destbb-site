@@ -471,7 +471,7 @@ const routeProduct=productFromPath();
 function refreshCartFromStorage(){cart=loadCart();renderCart();updateDeliverySummary();}
 window.addEventListener('pageshow',refreshCartFromStorage);
 window.addEventListener('storage',e=>{if(e.key==='destbb_cart_v2')refreshCartFromStorage();});
-renderProducts();loadManagedCatalog();
+renderProducts();if(routeProduct&&products[routeProduct])openProduct(routeProduct);loadManagedCatalog();
 try{const saved=loadCart();if(saved.length){cart=saved;renderCart()}}catch(e){}renderCart();updateWallet();updateDeliverySummary();document.getElementById('uaDeliveryTypeBlock').style.display='none';setWorldDelivery(document.querySelector('.worldDeliveryChoices .deliveryChoice'),'nova');renderCountryList();document.getElementById('wCountryList').classList.remove('open');document.addEventListener('click',e=>{if(!e.target.closest('.countryPicker'))document.getElementById('wCountryList')?.classList.remove('open')});if(routeProduct){openProduct(routeProduct)}document.getElementById('uaPhone').addEventListener('input',formatUaPhone);document.getElementById('uaPhone').addEventListener('focus',()=>{if(!document.getElementById('uaPhone').value.startsWith('+380'))document.getElementById('uaPhone').value='+380 ';});
 document.addEventListener('keydown',e=>{if(document.getElementById('lightbox').classList.contains('open')){if(e.key==='Escape'){closeLightbox();closeSizeChart()}if(e.key==='ArrowLeft')lightboxPrev();if(e.key==='ArrowRight')lightboxNext()}});
 </script>
