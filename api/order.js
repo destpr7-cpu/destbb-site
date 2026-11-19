@@ -15,9 +15,10 @@ const VERCEL_PREVIEW = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
 // Каталог — источник правды о ценах. Менять здесь при смене цен
 // Цены задаются здесь для проверки и расчёта заказов на сервере.
 const ONE = '190×21 см';
+const UPDATED_SCARF_SIZE = '205×21 см';
 const CATALOG = {
-  scarf2r:    { name: 'DESIGNER SCARF «2R»',        price: 699, sizes: [ONE] },
-  scarfhinge: { name: 'DESIGNER SCARF «UNTITLED»',  price: 749, sizes: [ONE] },
+  scarf2r:    { name: 'DESIGNER SCARF «2R»',        price: 699, sizes: [UPDATED_SCARF_SIZE] },
+  scarfhinge: { name: 'DESIGNER SCARF «UNTITLED»',  price: 749, sizes: [UPDATED_SCARF_SIZE] },
   scarf:      { name: 'SCARF «GREAT SCHEMA»',       price: 888,  sizes: [ONE] },
   redline:    { name: 'LONGSLEEVE «REDLINE»',       price: 1720, sizes: ['S', 'M', 'L', 'XL'] },
   jesus:      { name: 'LONGSLEEVE «JESUS»',         price: 1520, sizes: ['S', 'M', 'L', 'XL', 'XXL'] }
