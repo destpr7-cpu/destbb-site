@@ -2,6 +2,17 @@
   "rewrites": [
     {
       "source": "/products/:slug([a-z0-9-]+)",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i).*(facebookexternalhit|meta-externalagent|facebot|telegrambot|whatsapp|twitterbot|slackbot|discordbot|linkedinbot|vkshare|viber|skypeuripreview).*"
+        }
+      ],
+      "destination": "/api/product?slug=:slug"
+    },
+    {
+      "source": "/products/:slug([a-z0-9-]+)",
       "destination": "/index.html"
     }
   ],
