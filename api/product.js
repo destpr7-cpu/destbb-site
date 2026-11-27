@@ -1,11 +1,11 @@
 // api/product.js — отдаёт страницу товара с тегами для превью ссылки (Instagram, Telegram и т.д.)
 const SITE = 'https://destbb.com';
 const PRODUCTS = {
-  scarf2r:      { name: 'DESIGNER SCARF «2R»',       price: '775 грн / $17', image: '/assets/scarf_2r_1.png',          desc: '205×21 см. 100% Acrylic. Сроки от 3 до 14 рабочих дней.' },
-  scarfhinge:   { name: 'DESIGNER SCARF «UNTITLED»', price: '775 грн / $17', image: '/assets/scarf_untitled_1.png',    desc: '205×21 см. 100% Acrylic. Сроки от 3 до 14 рабочих дней.' },
-  redline:      { name: 'LONGSLEEVE «REDLINE»',      price: '1 720 грн / $38', image: '/assets/redline_main.webp',     desc: 'Лонгслив dest.bb.' },
-  jesus:        { name: 'LONGSLEEVE «JESUS»',        price: '1 520 грн / $33', image: '/assets/jesus_1.jpg',           desc: 'Лонгслив dest.bb.' },
-  'great-schema': { name: 'SCARF «GREAT SCHEMA»',    price: '888 грн / $20', image: '/assets/great_schema_1.jpg',      desc: 'Шарф dest.bb.' }
+  scarf2r:      { name: 'DESIGNER SCARF «2R»',       price: '775 грн / $17 (вместо 888 грн) · BLACK DECEMBER', image: '/assets/scarf_2r_1.png',          desc: '205×21 см. 100% Acrylic.' },
+  scarfhinge:   { name: 'DESIGNER SCARF «UNTITLED»', price: '775 грн / $17 (вместо 888 грн) · BLACK DECEMBER', image: '/assets/scarf_untitled_1.png',    desc: '205×21 см. 100% Acrylic.' },
+  redline:      { name: 'LONGSLEEVE «REDLINE»',      price: '1 720 грн / $38 (вместо 1 999 грн) · BLACK DECEMBER', image: '/assets/redline_main.webp',     desc: 'Лонгслив dest.bb.' },
+  jesus:        { name: 'LONGSLEEVE «JESUS»',        price: '1 520 грн / $33 (вместо 1 888 грн) · BLACK DECEMBER', image: '/assets/jesus_1.jpg',           desc: 'Лонгслив dest.bb.' },
+  'great-schema': { name: 'SCARF «GREAT SCHEMA»',    price: '888 грн / $20 (вместо 999 грн) · BLACK DECEMBER', image: '/assets/great_schema_1.jpg',      desc: 'Шарф dest.bb.' }
 };
 PRODUCTS.scarf = PRODUCTS['great-schema'];
 
