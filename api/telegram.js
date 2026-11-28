@@ -58,6 +58,12 @@ async function renderOrder(token, msg, state) {
   return { ok: !!j.ok, error: j.description };
 }
 
+// Удаляем твоё сообщение с треком, чтобы не было мусора (бот и так вписал ТТН в заказ)
+async function removeMsg(token, msg) {
+  const j = await tg(token, 'deleteMessage', { chat_id: msg.chat.id, message_id: msg.message_id });
+  return !!j.ok;
+}
+
 async function react(token, msg, emoji) {
   const j = await tg(token, 'setMessageReaction', {
     chat_id: msg.chat.id, message_id: msg.message_id, reaction: [{ type: 'emoji', emoji }]
@@ -101,17 +107,6 @@ module.exports = async function handler(req, res) {
   try {
     let u = req.body;
     if (typeof u === 'string') { try { u = JSON.parse(u); } catch { u = {}; } }
-    {
-      const mm = u.message || (u.callback_query && u.callback_query.message) || {};
-      const rt = u.message && u.message.reply_to_message;
-      console.log('[bot] update', JSON.stringify({
-        kind: u.callback_query ? 'button:' + u.callback_query.data : u.message ? 'message' : Object.keys(u).join(','),
-        chatMatch: String((mm.chat || {}).id) === chatId,
-        hasReply: !!rt,
-        replyHead: rt ? String(rt.caption ?? rt.text ?? '').slice(0, 40) : null,
-        text: u.message ? String(u.message.text || '').slice(0, 40) : null
-      }));
-    }
 
     // ---------- Нажатие кнопки ----------
     if (u.callback_query) {
@@ -155,7 +150,7 @@ module.exports = async function handler(req, res) {
 
       if (text === '+') {
         const r = await renderOrder(token, order, state);
-        await react(token, m, r.ok ? '👌' : '🤷');
+        if (!(r.ok && await removeMsg(token, m))) await react(token, m, r.ok ? '👌' : '🤷');
         return res.status(200).end();
       }
 
@@ -164,6 +159,7 @@ module.exports = async function handler(req, res) {
         state.ttn = ttn;
         if (state.status === 'new') state.status = 'track';
         const r = await renderOrder(token, order, state);
+        if (r.ok && await removeMsg(token, m)) return res.status(200).end();
         const reacted = await react(token, m, r.ok ? '👌' : '🤷');
         if (!reacted) {
           await tg(token, 'sendMessage', {
