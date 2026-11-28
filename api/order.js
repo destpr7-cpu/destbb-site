@@ -20,9 +20,9 @@ const UPDATED_SCARF_SIZE = '205×21 см';
 const CATALOG = {
   scarf2r:    { name: 'DESIGNER SCARF «2R»',        price: 775, sizes: [UPDATED_SCARF_SIZE] },
   scarfhinge: { name: 'DESIGNER SCARF «UNTITLED»',  price: 775, sizes: [UPDATED_SCARF_SIZE] },
-  scarf:      { name: 'SCARF «GREAT SCHEMA»',       price: 888,  sizes: [ONE] },
+  scarf:      { name: 'SCARF «GREAT SCHEMA» · ПРЕДЗАКАЗ', price: 888,  sizes: [ONE] },
   redline:    { name: 'LONGSLEEVE «REDLINE»',       price: 1720, sizes: ['S', 'M', 'L', 'XL'] },
-  jesus:      { name: 'LONGSLEEVE «JESUS»',         price: 1520, sizes: ['S', 'M', 'L', 'XL', 'XXL'] }
+  jesus:      { name: 'LONGSLEEVE «JESUS»',         price: 1520, sizes: ['M', 'L', 'XL', 'XXL'] } // S нет в наличии
 };
 
 // ---------- Хелперы ----------
