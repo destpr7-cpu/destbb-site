@@ -13,6 +13,7 @@
 
 const crypto = require('crypto');
 const S = require('./_orderStatus');
+const { sendTrackingMail } = require('./_mailer');
 
 const CAPTION_LIMIT = 1024;
 const TEXT_LIMIT = 4096;
@@ -156,8 +157,15 @@ module.exports = async function handler(req, res) {
 
       const ttn = S.extractTtn(text);
       if (ttn) {
+        const ttnChanged = state.ttn !== ttn;
         state.ttn = ttn;
         if (state.status === 'new') state.status = 'track';
+        // Письмо клиенту с треком (только если в заказе есть email и Gmail подключён)
+        if (ttnChanged || state.mail === 'failed') {
+          const mr = await sendTrackingMail(order.caption ?? order.text, ttn);
+          if (mr.ok) state.mail = 'sent';
+          else if (mr.error) state.mail = 'failed';
+        }
         const r = await renderOrder(token, order, state);
         if (r.ok && await removeMsg(token, m)) return res.status(200).end();
         const reacted = await react(token, m, r.ok ? '👌' : '🤷');

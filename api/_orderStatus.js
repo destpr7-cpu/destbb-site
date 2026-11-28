@@ -36,6 +36,7 @@ function parseState(plainText) {
     status: block.includes('🟢') ? 'sent' : block.includes('🟡') ? 'track' : 'new',
     ttn: ttnMatch ? ttnMatch[0] : null,
     paid: block.includes('💸'),
+    mail: block.includes('📧⚠️') ? 'failed' : block.includes('📧') ? 'sent' : null,
     hasBlock: i >= 0
   };
 }
@@ -46,12 +47,14 @@ function statusBlock(state, compact = false) {
   if (compact) {
     return `\n\n${MARK} ${STATUS[state.status]}` +
       (state.ttn ? ` · <code>${escHtml(state.ttn)}</code>` : '') +
-      (state.paid ? ' · 💸✅' : '');
+      (state.paid ? ' · 💸✅' : '') +
+      (state.mail === 'sent' ? ' · 📧' : state.mail === 'failed' ? ' · 📧⚠️' : '');
   }
   return [
     `\n\n${MARK} <b>Статус:</b> ${STATUS[state.status]}`,
     state.ttn ? `\n🏷 ТТН: <code>${escHtml(state.ttn)}</code>${carrier ? ' · ' + carrier : ''}` : '',
-    state.paid ? '\n💸 Доставка оплачена' : ''
+    state.paid ? '\n💸 Доставка оплачена' : '',
+    state.mail === 'sent' ? '\n📧 Письмо с треком отправлено' : state.mail === 'failed' ? '\n📧⚠️ Письмо не отправлено (ответь треком ещё раз)' : ''
   ].join('');
 }
 
