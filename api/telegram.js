@@ -66,7 +66,7 @@ async function react(token, msg, emoji) {
 
 module.exports = async function handler(req, res) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = String(process.env.TELEGRAM_CHAT_ID || '');
+  const chatId = String(process.env.TELEGRAM_CHAT_ID || '').trim();
   if (!token || !chatId) return res.status(500).json({ error: 'env vars missing' });
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET ||
     crypto.createHash('sha256').update('destbb-webhook:' + token).digest('hex').slice(0, 48);
@@ -74,6 +74,12 @@ module.exports = async function handler(req, res) {
   // Разовая настройка webhook: GET /api/telegram?setup=1
   // (безопасно: всегда привязывает бота к этому же адресу с этим же секретом)
   if (req.method === 'GET') {
+    if (req.query && req.query.info) {
+      // Диагностика: что Telegram думает о webhook (без токена)
+      const j = await tg(token, 'getWebhookInfo', {});
+      const w = j.result || {};
+      return res.status(200).json({ ok: !!j.ok, url: w.url, pending: w.pending_update_count, last_error: w.last_error_message || null, last_error_date: w.last_error_date || null, chat_id_set: chatId.length > 0, chat_id_tail: chatId.slice(-3) });
+    }
     if (req.query && req.query.setup) {
       const host = req.headers['x-forwarded-host'] || req.headers.host;
       const j = await tg(token, 'setWebhook', {
