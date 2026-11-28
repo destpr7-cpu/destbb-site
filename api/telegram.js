@@ -54,6 +54,7 @@ async function renderOrder(token, msg, state) {
     ? await tg(token, 'editMessageCaption', { ...common, caption: html })
     : await tg(token, 'editMessageText', { ...common, text: html, disable_web_page_preview: true });
   if (!j.ok && /not modified/i.test(j.description || '')) return { ok: true };
+  if (!j.ok) console.log('[bot] edit failed:', j.description);
   return { ok: !!j.ok, error: j.description };
 }
 
@@ -100,6 +101,17 @@ module.exports = async function handler(req, res) {
   try {
     let u = req.body;
     if (typeof u === 'string') { try { u = JSON.parse(u); } catch { u = {}; } }
+    {
+      const mm = u.message || (u.callback_query && u.callback_query.message) || {};
+      const rt = u.message && u.message.reply_to_message;
+      console.log('[bot] update', JSON.stringify({
+        kind: u.callback_query ? 'button:' + u.callback_query.data : u.message ? 'message' : Object.keys(u).join(','),
+        chatMatch: String((mm.chat || {}).id) === chatId,
+        hasReply: !!rt,
+        replyHead: rt ? String(rt.caption ?? rt.text ?? '').slice(0, 40) : null,
+        text: u.message ? String(u.message.text || '').slice(0, 40) : null
+      }));
+    }
 
     // ---------- Нажатие кнопки ----------
     if (u.callback_query) {
