@@ -1,5 +1,6 @@
 // api/order.js — Vercel serverless function (CommonJS)
 const crypto = require('crypto');
+const S = require('./_orderStatus'); // кнопки и статусы заказа в Telegram
 
 // ---------- Настройки ----------
 const USD_RATE = 45.5;
@@ -66,7 +67,7 @@ function normalizeCart(rawCart, catalog = CATALOG) {
   return items;
 }
 
-const TELEGRAM_CAPTION_LIMIT = 1000;
+const TELEGRAM_CAPTION_LIMIT = 880; // запас под блок статуса (📌 Статус / ТТН / доставка)
 const priceLabel = n => `${money(n)} грн ($${Math.round(Number(n || 0) / USD_RATE)})`;
 const visibleLen = html => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').length;
 function kyivTime() {
@@ -110,13 +111,15 @@ function buildOrderMessage({ orderNumber, isRequest, isUa, mismatch, items, d, o
     `💰 <b>${isRequest ? 'ИТОГО (ориентировочно)' : 'ИТОГО К ОПЛАТЕ'}: ${priceLabel(total)}</b>`,
     isRequest ? '' : '🧾 Чек прикреплён', `🕐 ${kyivTime()}`
   ]);
-  return [blocks([`${isRequest ? '📝 <b>НОВАЯ ЗАЯВКА</b>' : '🛍 <b>НОВЫЙ ЗАКАЗ</b>'} · <code>${orderNumber}</code>`, mismatch ? '⚠️ <i>Сумма пересчитана по каталогу</i>' : '']), goods, delivery, moneyBlock].filter(Boolean).join('\n\n');
+  const NEW_STATE = { status: 'new', ttn: null, paid: false };
+  return [blocks([`${isRequest ? '📝 <b>НОВАЯ ЗАЯВКА</b>' : '🛍 <b>НОВЫЙ ЗАКАЗ</b>'} · <code>${orderNumber}</code>`, mismatch ? '⚠️ <i>Сумма пересчитана по каталогу</i>' : '']), goods, delivery, moneyBlock].filter(Boolean).join('\n\n') + S.statusBlock(NEW_STATE);
 }
-async function sendReceipt({ token, chatId, buf, kind, orderNumber, caption, replyTo }) {
+async function sendReceipt({ token, chatId, buf, kind, orderNumber, caption, replyTo, withButtons }) {
   const send = async asPhoto => {
     try {
       const form = new FormData(); form.append('chat_id', chatId); form.append('caption', caption || `🧾 ЧЕК · ${orderNumber}`); form.append('parse_mode', 'HTML');
       if (replyTo) form.append('reply_to_message_id', String(replyTo));
+      if (withButtons) form.append('reply_markup', JSON.stringify(S.keyboard({ status: 'new', ttn: null, paid: false })));
       form.append(asPhoto ? 'photo' : 'document', new Blob([buf], { type: kind.mime }), `receipt-${orderNumber}.${kind.ext}`);
       const r = await fetch(`https://api.telegram.org/bot${token}/${asPhoto ? 'sendPhoto' : 'sendDocument'}`, { method: 'POST', body: form });
       const j = await r.json().catch(() => ({})); return r.ok && j.ok ? null : (j.description || 'receipt upload failed');
@@ -173,25 +176,29 @@ module.exports = async function handler(req, res) {
     const orderNumber = makeOrderNumber();
     const d = o.delivery && typeof o.delivery === 'object' ? o.delivery : {};
     const message = buildOrderMessage({ orderNumber, isRequest, isUa, mismatch, items, d, o, subtotal, shippingCost, total });
-    const sendText = async text => {
-      const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }) });
+    const ORDER_BUTTONS = S.keyboard({ status: 'new', ttn: null, paid: false });
+    const sendText = async (text, withButtons = true) => {
+      const payload = { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true };
+      if (withButtons) payload.reply_markup = ORDER_BUTTONS;
+      const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const j = await r.json().catch(() => ({})); return r.ok && j.ok ? { ok: true, result: j.result } : { ok: false, error: j.description || 'sendMessage failed' };
     };
     if (!receiptBuf) {
       const r = await sendText(message);
       if (!r.ok) { console.error('sendMessage failed:', r.error); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
     } else if (visibleLen(message) <= TELEGRAM_CAPTION_LIMIT) {
-      const err = await sendReceipt({ token, chatId, buf: receiptBuf, kind: receiptKind, orderNumber, caption: message });
+      const err = await sendReceipt({ token, chatId, buf: receiptBuf, kind: receiptKind, orderNumber, caption: message, withButtons: true });
       if (err) {
         console.error('receipt failed:', err);
-        const r = await sendText(message + '\n\n⚠️ <b>Чек не загрузился — запросите его у клиента</b>');
+        const newBlock = S.statusBlock({ status: 'new', ttn: null, paid: false });
+        const r = await sendText(message.replace(newBlock, '\n\n⚠️ <b>Чек не загрузился — запросите его у клиента</b>' + newBlock));
         if (!r.ok) return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' });
       }
     } else {
       const r = await sendText(message);
       if (!r.ok) { console.error('sendMessage failed:', r.error); return res.status(502).json({ error: 'Не удалось отправить заказ, попробуйте ещё раз' }); }
       const err = await sendReceipt({ token, chatId, buf: receiptBuf, kind: receiptKind, orderNumber, caption: `🧾 <b>Чек</b> · <code>${orderNumber}</code>`, replyTo: r.result.message_id });
-      if (err) await sendText(`⚠️ Чек к заказу <code>${orderNumber}</code> не загрузился — запросите его у клиента`);
+      if (err) await sendText(`⚠️ Чек к заказу <code>${orderNumber}</code> не загрузился — запросите его у клиента`, false);
     }
     return res.status(200).json({ ok: true, orderNumber });
   } catch (e) {
