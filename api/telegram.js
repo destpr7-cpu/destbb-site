@@ -7,10 +7,11 @@
 //  • 💸 Доставка оплачена (вкл/выкл)
 //  • ответ "+" на старый заказ без кнопок → добавляет кнопки
 //
-// Нужны переменные окружения в Vercel:
-//  TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (уже есть) и TELEGRAM_WEBHOOK_SECRET (новая).
-// Один раз после деплоя открыть: https://destbb.com/api/telegram?setup=<TELEGRAM_WEBHOOK_SECRET>
+// Нужны переменные окружения в Vercel: TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID (уже есть).
+// Секрет webhook вычисляется из токена бота — отдельная переменная не нужна.
+// Один раз после деплоя открыть: https://destbb.com/api/telegram?setup=1
 
+const crypto = require('crypto');
 const S = require('./_orderStatus');
 
 const CAPTION_LIMIT = 1024;
@@ -66,12 +67,14 @@ async function react(token, msg, emoji) {
 module.exports = async function handler(req, res) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = String(process.env.TELEGRAM_CHAT_ID || '');
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (!token || !chatId || !secret) return res.status(500).json({ error: 'env vars missing' });
+  if (!token || !chatId) return res.status(500).json({ error: 'env vars missing' });
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET ||
+    crypto.createHash('sha256').update('destbb-webhook:' + token).digest('hex').slice(0, 48);
 
-  // Разовая настройка webhook: GET /api/telegram?setup=<секрет>
+  // Разовая настройка webhook: GET /api/telegram?setup=1
+  // (безопасно: всегда привязывает бота к этому же адресу с этим же секретом)
   if (req.method === 'GET') {
-    if (req.query && req.query.setup === secret) {
+    if (req.query && req.query.setup) {
       const host = req.headers['x-forwarded-host'] || req.headers.host;
       const j = await tg(token, 'setWebhook', {
         url: `https://${host}/api/telegram`,
@@ -79,7 +82,7 @@ module.exports = async function handler(req, res) {
         allowed_updates: ['message', 'callback_query'],
         drop_pending_updates: true
       });
-      return res.status(200).json(j);
+      return res.status(200).json({ ok: !!j.ok, description: j.description });
     }
     return res.status(404).end();
   }
